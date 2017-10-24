@@ -1,0 +1,3 @@
+/home/tzc/Learning/OpenCV/LPR/build/CMakeFiles/edit_cache.dir
+/home/tzc/Learning/OpenCV/LPR/build/CMakeFiles/rebuild_cache.dir
+/home/tzc/Learning/OpenCV/LPR/build/CMakeFiles/LPR.dir

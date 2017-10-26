@@ -1,6 +1,7 @@
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <algorithm>
+#include <cmath>
 using namespace cv;
 using namespace std;
 
@@ -111,8 +112,8 @@ Mat getFinalMask(Mat& suspendEdge)
   int height = finalMask.rows;
   int width = finalMask.cols;
   
-  Mat element_erode = getStructuringElement(cv::MORPH_ELLIPSE, Size(0.02*width,0.02*height));
-  Mat element_dilate = getStructuringElement(cv::MORPH_ELLIPSE, Size(0.02*width,0.02*height));
+  Mat element_erode = getStructuringElement(cv::MORPH_ELLIPSE, Size(0.025*width,0.025*height));
+  Mat element_dilate = getStructuringElement(cv::MORPH_ELLIPSE, Size(0.025*width,0.025*height));
   
   dilate(finalMask, finalMask, element_dilate);	//膨胀
   erode(finalMask, finalMask, element_erode);	//腐蚀
@@ -225,7 +226,7 @@ Mat getCorrect(Mat& resultArea)
   //cout << l[0] <<" " <<  l[1] << " "  << l[2] << " "<< l[3] << endl;
   
   
-  
+  //double angle = atan((double)(l[3]-l[1])/(l[2]-l[0]));
   double angle = cvFastArctan(l[3]-l[1], l[2]-l[0]);
   Point2f center = Point2f(l[0], l[1]);
   angle *= CV_PI/180;
@@ -248,7 +249,7 @@ Mat getCorrect(Mat& resultArea)
   
 }
 
-Mat getRGBMask4Text(Mat & srcImage)
+Mat getRGBMask4Text(Mat & srcImage, Mat & rgbMask4Final)
 {
   
   Mat rgbMask = getHSVMask(srcImage);
@@ -280,12 +281,26 @@ Mat getRGBMask4Text(Mat & srcImage)
     }
   }
   
-  
+  /*
   Mat element_erode = getStructuringElement(cv::MORPH_ELLIPSE, Size(3,3));
   Mat element_dilate = getStructuringElement(cv::MORPH_ELLIPSE, Size(3,3));
   erode(rgbMask, rgbMask, element_erode);	//腐蚀
   dilate(rgbMask, rgbMask, element_dilate);	//膨胀
+  */
   
+  rgbMask4Final = rgbMask.clone();
+  rgbMask4Final = 255 - rgbMask4Final;
+  
+  GaussianBlur(rgbMask, rgbMask, Size(5,5), 0,0,cv::BORDER_DEFAULT);
+  for(int i = 0; i < height; i++)
+    for(int j = 0; j < width; j++)
+    {
+      if(rgbMask.at<uchar>(i,j) > 180)
+	rgbMask.at<uchar>(i,j) = 255;
+      else
+	rgbMask.at<uchar>(i,j) = 0;
+    }
+	
   
   rgbMask = 255 - rgbMask;
   imshow("rgbMask", rgbMask);waitKey();
@@ -298,6 +313,8 @@ void Cut_Edge(Mat& srcImage, Mat& rgbMask)
   int width = srcImage.cols;
   
   //水平边缘去除
+  
+  
   
   for(int i = 0; i < height; i++)
   {
@@ -316,19 +333,21 @@ void Cut_Edge(Mat& srcImage, Mat& rgbMask)
     }
   }
   
-  Mat element_erode = getStructuringElement(cv::MORPH_ELLIPSE, Size(1,3));		//垂直开操作，消除没去掉的横线
-  Mat element_dilate = getStructuringElement(cv::MORPH_ELLIPSE, Size(1,3));
+  /*
+  Mat element_erode = getStructuringElement(cv::MORPH_ELLIPSE, Size(2,5));		//垂直开操作，消除没去掉的横线
+  Mat element_dilate = getStructuringElement(cv::MORPH_ELLIPSE, Size(2,5));
   erode(rgbMask, rgbMask, element_erode);	//腐蚀
   dilate(rgbMask, rgbMask, element_dilate);	//膨胀
-  
-  element_erode = getStructuringElement(cv::MORPH_ELLIPSE, Size(1,4));		//垂直闭操作，补上被分割的字符
-  element_dilate = getStructuringElement(cv::MORPH_ELLIPSE, Size(1,4));
+  */
+  Mat element_erode = getStructuringElement(cv::MORPH_ELLIPSE, Size(2,5));		//垂直闭操作，补上被分割的字符
+  Mat element_dilate = getStructuringElement(cv::MORPH_ELLIPSE, Size(2,5));
   dilate(rgbMask, rgbMask, element_dilate);	//膨胀
-  //erode(rgbMask, rgbMask, element_erode);	//腐蚀
+  erode(rgbMask, rgbMask, element_erode);	//腐蚀
   
   imshow("rgbMask2", rgbMask); waitKey();
   
   //垂直边缘去除
+  /*
   int thres = 0.02*width;
   for(int j = 0; j < thres; j++)
     for(int i = 0; i < height; i++)
@@ -338,24 +357,39 @@ void Cut_Edge(Mat& srcImage, Mat& rgbMask)
       rgbMask.at<uchar>(i,j) = 0;
   
   imshow("rgbMask2", rgbMask); waitKey();
-  
+  */
   
 }
 
-bool cmp(Rect a, Rect b)
+bool cmp1(Rect a, Rect b)
 {
   return a.area() > b.area();
 }
 
-vector<Mat> Split_Text(Mat & rgbMask)
+bool cmp2(Rect a, Rect b)
+{
+  return a.x < b.x;
+}
+
+vector<Mat> Split_Text(Mat & rgbMask, Mat& rgbMask4Final)
 {
   int height = rgbMask.rows;
   int width = rgbMask.cols;
   Mat Mask = rgbMask.clone();
-  Mat element_erode = getStructuringElement(cv::MORPH_ELLIPSE, Size(width*0.02,height*0.06));	//膨胀，将断裂的字符连接起来
-  Mat element_dilate = getStructuringElement(cv::MORPH_ELLIPSE, Size(width*0.02,height*0.06));
-  dilate(Mask, Mask, element_dilate);	//膨胀
-  //erode(rgbMask, rgbMask, element_erode);	//腐蚀
+  Mat element_erode = getStructuringElement(cv::MORPH_ELLIPSE, Size(width*0.02,(height*0.001)>3?height:3));	
+  Mat element_dilate = getStructuringElement(cv::MORPH_ELLIPSE, Size(width*0.025,(height*0.001)>3?height:3));
+  imshow("Mask", Mask); waitKey();
+  erode(Mask, Mask, element_erode);		//先水平方向腐蚀，去掉垂直边缘
+  imshow("Mask", Mask); waitKey();
+  dilate(Mask, Mask, element_dilate);			//水平方向膨胀，并补上断裂字符
+  imshow("Mask", Mask); waitKey();
+  
+  element_erode = getStructuringElement(cv::MORPH_ELLIPSE, Size(((width*0.001)>3?width:3),height*0.03));	
+  element_dilate = getStructuringElement(cv::MORPH_ELLIPSE, Size(((width*0.001)>3?width:3),height*0.07));
+  
+  erode(Mask, Mask, element_erode);	//垂直方向腐蚀，去掉残余的水平边缘
+  imshow("Mask", Mask); waitKey();
+  dilate(Mask, Mask, element_dilate);		//垂直方向膨胀，补上断裂字符
   
   imshow("Mask", Mask); waitKey();
   
@@ -371,8 +405,24 @@ vector<Mat> Split_Text(Mat & rgbMask)
   {
     Rect rect = boundingRect(contours[i]);
     double wh_ratio = double(rect.width)/rect.height;
-    if(wh_ratio < 1 && wh_ratio > 0.1 && rect.width > 0.1*width && rect.height > 0.2*height)
+    //imshow("test", Mask(rect)); waitKey();
+    if(wh_ratio < 1 && wh_ratio > 0.1 && rect.width > 0.03*width && rect.height > 0.1*height)
     {
+      rect.x -= rect.width * 0.05;
+  rect.y -= rect.height * 0.05;
+  rect.width += rect.width * 0.1;
+  rect.height += rect.height * 0.1;
+  /*
+  if(rect.x < 0)		//防止超出
+    rect.x = 0;
+  if(rect.y < 0)
+    rect.y = 0;
+  
+  if(rect.width+rect.x >= width)	
+    rect.width = width - rect.x-1;
+  if(rect.height+rect.y >= height)
+    rect.height = height - rect.y-1;*/
+  
       candidates.push_back(rect);
     }
   }
@@ -386,19 +436,35 @@ vector<Mat> Split_Text(Mat & rgbMask)
   }
   else
   {
-    sort(candidates.begin(), candidates.end(), cmp);
+    sort(candidates.begin(), candidates.end(), cmp1);		//按大小排序，选出区域大小最大的7块字符
+    sort(candidates.begin(), candidates.begin()+7, cmp2);	//7块字符按位置从左到右排序
     for(int i = 0; i < 7; i++)
     {
       double wh_ratio = (double)candidates[i].width/candidates[i].height;
-      double standard_wh_ratio = 0.5;
+      double standard_wh_ratio = 0.5;      
       if(wh_ratio < standard_wh_ratio) 	//字符偏瘦，尤其是字符"1"
       {
-	candidates[i].x -= candidates[i].width * ((standard_wh_ratio-wh_ratio)/2);
-	candidates[i].width += candidates[i].width * (standard_wh_ratio-wh_ratio);
+	int wide = (standard_wh_ratio*candidates[i].height - candidates[i].width)/2;
+	candidates[i].x -= wide;
+	candidates[i].width += 2*wide;
+	
+	if(candidates[i].x < 0)		//防止超出
+	  candidates[i].x = 0;
+	if(candidates[i].y < 0)
+	  candidates[i].y = 0;
+  
+	if(candidates[i].width+candidates[i].x >= width)	
+	  candidates[i].width = width - candidates[i].x-1;
+	if(candidates[i].height+candidates[i].y >= height)
+	  candidates[i].height = height - candidates[i].y-1;	
       }
       
+      
+      
       Mat tmp;
-      resize(rgbMask(candidates[i]), tmp, Size(13,26), 0, 0, CV_INTER_LINEAR);
+      blur(tmp, tmp, Size(5,5));
+      resize(rgbMask4Final(candidates[i]), tmp, Size(16,32), 0, 0, CV_INTER_AREA);
+      equalizeHist(tmp, tmp);
       resultText.push_back(tmp);
       imshow("text", resultText[i]); waitKey();
     }
@@ -408,9 +474,11 @@ vector<Mat> Split_Text(Mat & rgbMask)
 }
 
 
+
+
 int main(void)
 {
-  Mat srcImage = imread("../detect_picture/011.jpg");
+  Mat srcImage = imread("../detect_picture/016.jpg");
   //resize(srcImage, srcImage, Size(480, 640), 0, 0, CV_INTER_LINEAR);
   imshow("srcImage", srcImage); waitKey();
   Mat hsvMask = getHSVMask(srcImage);		//筛选符合HSV条件的区域，并进行一次开运算消除杂碎点
@@ -425,9 +493,10 @@ int main(void)
   Mat finalMask = getFinalMask(suspendEdge);
   Mat resultArea = getArea(srcImage, finalMask);
   Mat correctImage = getCorrect(resultArea);
-  Mat rgbMask4Text = getRGBMask4Text(correctImage);
+  Mat rgbMask4Final;
+  Mat rgbMask4Text = getRGBMask4Text(correctImage, rgbMask4Final);
   Cut_Edge(correctImage, rgbMask4Text); 
-  Split_Text(rgbMask4Text);
+  Split_Text(rgbMask4Text, rgbMask4Final);
   
   
   

@@ -68,7 +68,7 @@ Mat getHSVMask(Mat& srcImage)
   
   
   
-  imshow("hsvMask", hsvMask); waitKey();
+  //imshow("hsvMask", hsvMask); waitKey();
   return hsvMask;
   
   
@@ -101,16 +101,18 @@ Mat getSuspendEdge(Mat& hsvMask, Mat& cannyImage)
 	suspendEdge.at<uchar>(i,j) = 255;
     }
   }
-  imshow("suspendEdge", suspendEdge);waitKey();
+  //imshow("suspendEdge", suspendEdge);waitKey();
   return suspendEdge;
 }
 
 Mat getFinalMask(Mat& suspendEdge)
 {
   Mat finalMask = suspendEdge.clone(); 
+  int height = finalMask.rows;
+  int width = finalMask.cols;
   
-  Mat element_erode = getStructuringElement(cv::MORPH_ELLIPSE, Size(25,15));
-  Mat element_dilate = getStructuringElement(cv::MORPH_ELLIPSE, Size(25,15));
+  Mat element_erode = getStructuringElement(cv::MORPH_ELLIPSE, Size(0.02*width,0.02*height));
+  Mat element_dilate = getStructuringElement(cv::MORPH_ELLIPSE, Size(0.02*width,0.02*height));
   
   dilate(finalMask, finalMask, element_dilate);	//膨胀
   erode(finalMask, finalMask, element_erode);	//腐蚀
@@ -128,6 +130,9 @@ Mat getFinalMask(Mat& suspendEdge)
 
 Mat getArea(Mat& srcImage, Mat& finalMask)
 {
+  int height = finalMask.rows;
+  int width = finalMask.cols;
+  
   vector<vector<Point> > contours;
   findContours(finalMask.clone(), contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE, Point(0,0));
   
@@ -136,7 +141,7 @@ Mat getArea(Mat& srcImage, Mat& finalMask)
   int best_area = 0;
   
   double ratio_high = 0.3;
-  double ratio_low = 0.2;
+  double ratio_low = 0.1;
   
   for(int i = 0; i != contours.size(); i++)
   {
@@ -154,7 +159,7 @@ Mat getArea(Mat& srcImage, Mat& finalMask)
     }
     else if(ratio > ratio_low && wh_ratio > 1.5 && wh_ratio < 5 && rect.height > 12 && rect.width > 60)
     {
-      Mat element_dilate = getStructuringElement(cv::MORPH_ELLIPSE, Size(15,15));
+      Mat element_dilate = getStructuringElement(cv::MORPH_ELLIPSE, Size(0.02*width,0.02*height));
       Mat tmp = finalMask.clone();
       dilate(tmp, tmp, element_dilate);	//膨胀
       area = countNonZero(tmp(rect));
@@ -170,17 +175,19 @@ Mat getArea(Mat& srcImage, Mat& finalMask)
     }
     
   }
+  if(best_i < 0)
+    cout << "no area found!" << endl;
   
   Rect rect = boundingRect(contours[best_i]);
   
-  cout << rect.width << " " << rect.height << endl;
+  //cout << rect.width << " " << rect.height << endl;
   
-  /*
-  rect.x -= rect.width * 0.05;
+  
+  //rect.x -= rect.width * 0.05;
   rect.y -= rect.height * 0.05;
-  rect.width += rect.width * 0.1;
+  //rect.width += rect.width * 0.1;
   rect.height += rect.height * 0.1;
-  */
+  
   Mat resultArea = srcImage(rect);
   //resize(resultArea, resultArea, Size(150,50), 0, 0, CV_INTER_LINEAR);
   imshow("resultArea", resultArea); waitKey();
@@ -215,7 +222,7 @@ Mat getCorrect(Mat& resultArea)
     }
   }
   Vec4i l = lines[max_i];
-  cout << l[0] <<" " <<  l[1] << " "  << l[2] << " "<< l[3] << endl;
+  //cout << l[0] <<" " <<  l[1] << " "  << l[2] << " "<< l[3] << endl;
   
   
   
@@ -241,12 +248,11 @@ Mat getCorrect(Mat& resultArea)
   
 }
 
-
 Mat getRGBMask4Text(Mat & srcImage)
 {
   
   Mat rgbMask = getHSVMask(srcImage);
-  imshow("rgbMask", rgbMask);waitKey();
+  //imshow("rgbMask", rgbMask);waitKey();
   
    int height = srcImage.rows;
   int width = srcImage.cols;
@@ -262,7 +268,7 @@ Mat getRGBMask4Text(Mat & srcImage)
       g = srcImage.at<Vec3b>(i,j)[1];
       r = srcImage.at<Vec3b>(i,j)[2];
       
-      int thresh = 35;
+      int thresh = 40;
       if(abs(r-g) < thresh && abs(r-b) < thresh && abs(b-g) < thresh)
       {
 	int thresh2 = 80;
@@ -274,106 +280,137 @@ Mat getRGBMask4Text(Mat & srcImage)
     }
   }
   
-  /*
-  Mat element_erode = getStructuringElement(cv::MORPH_ELLIPSE, Size(3,5));
-  Mat element_dilate = getStructuringElement(cv::MORPH_ELLIPSE, Size(3,5));
+  
+  Mat element_erode = getStructuringElement(cv::MORPH_ELLIPSE, Size(3,3));
+  Mat element_dilate = getStructuringElement(cv::MORPH_ELLIPSE, Size(3,3));
   erode(rgbMask, rgbMask, element_erode);	//腐蚀
   dilate(rgbMask, rgbMask, element_dilate);	//膨胀
   
-  */
+  
   rgbMask = 255 - rgbMask;
   imshow("rgbMask", rgbMask);waitKey();
   return rgbMask;
 }
 
-Mat Derive_Frame(Mat& rgbMask)
-{
-  int height = rgbMask.rows;
-  int width = rgbMask.cols;
-  int widththresh = (double)width/12;
-  int heightthresh = (double)height/8;
+void Cut_Edge(Mat& srcImage, Mat& rgbMask)
+{    
+  int height = srcImage.rows;
+  int width = srcImage.cols;
+  
+  //水平边缘去除
   
   for(int i = 0; i < height; i++)
   {
+    int thresh = 15;
     int cnt = 0;
-    int max_cnt = 0;
     for(int j = 1; j < width; j++)
     {
-      if(rgbMask.at<uchar>(i,j) == 255 && rgbMask.at<uchar>(i,j) == rgbMask.at<uchar>(i,j-1))
-      {
+      if((rgbMask.at<uchar>(i,j) == 255 && rgbMask.at<uchar>(i,j-1) == 0) || (rgbMask.at<uchar>(i,j) == 0 && rgbMask.at<uchar>(i,j-1) == 255))
 	cnt++;
-	if(max_cnt > cnt)
-	{
-	  max_cnt = cnt;
-	}
-      }
-      else{
-	cnt = 0;
-      }
     }
-    if(max_cnt>widththresh)
+    if(cnt < thresh)
     {
-      for(int j = 1; j < width; j++)
+      for(int j = 0; j < width; j++)
 	rgbMask.at<uchar>(i,j) = 0;
+    
     }
-      
   }
-  imshow("edge_cut", rgbMask); waitKey();
-  return rgbMask;
+  
+  Mat element_erode = getStructuringElement(cv::MORPH_ELLIPSE, Size(1,3));		//垂直开操作，消除没去掉的横线
+  Mat element_dilate = getStructuringElement(cv::MORPH_ELLIPSE, Size(1,3));
+  erode(rgbMask, rgbMask, element_erode);	//腐蚀
+  dilate(rgbMask, rgbMask, element_dilate);	//膨胀
+  
+  element_erode = getStructuringElement(cv::MORPH_ELLIPSE, Size(1,4));		//垂直闭操作，补上被分割的字符
+  element_dilate = getStructuringElement(cv::MORPH_ELLIPSE, Size(1,4));
+  dilate(rgbMask, rgbMask, element_dilate);	//膨胀
+  //erode(rgbMask, rgbMask, element_erode);	//腐蚀
+  
+  imshow("rgbMask2", rgbMask); waitKey();
+  
+  //垂直边缘去除
+  int thres = 0.02*width;
+  for(int j = 0; j < thres; j++)
+    for(int i = 0; i < height; i++)
+      rgbMask.at<uchar>(i,j) = 0;
+   for(int j = width-1; j >= width - thres; j--)
+    for(int i = 0; i < height; i++)
+      rgbMask.at<uchar>(i,j) = 0;
+  
+  imshow("rgbMask2", rgbMask); waitKey();
+  
   
 }
 
-void Split_Text(Mat & rgbMask)
+bool cmp(Rect a, Rect b)
 {
-  vector<vector<Point> > contours;
+  return a.area() > b.area();
+}
+
+vector<Mat> Split_Text(Mat & rgbMask)
+{
   int height = rgbMask.rows;
   int width = rgbMask.cols;
-  findContours(rgbMask.clone(), contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE, Point(0,0));
+  Mat Mask = rgbMask.clone();
+  Mat element_erode = getStructuringElement(cv::MORPH_ELLIPSE, Size(width*0.02,height*0.06));	//膨胀，将断裂的字符连接起来
+  Mat element_dilate = getStructuringElement(cv::MORPH_ELLIPSE, Size(width*0.02,height*0.06));
+  dilate(Mask, Mask, element_dilate);	//膨胀
+  //erode(rgbMask, rgbMask, element_erode);	//腐蚀
+  
+  imshow("Mask", Mask); waitKey();
+  
+  
+  
+  
+  vector<vector<Point> > contours;
+  findContours(Mask.clone(), contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE, Point(0,0));
   
   vector<Rect> candidates;
-  cout << "split" << endl;
   
-  for(int i = 0; i != contours.size(); i++)
+  for(int i = 0; i < contours.size(); i++)
   {
     Rect rect = boundingRect(contours[i]);
     double wh_ratio = double(rect.width)/rect.height;
-    
-    if(wh_ratio < 0.9 && wh_ratio > 0.15 && rect.width > 5 && rect.height > 5 
-      && rect.x < width*0.95 && rect.x > width*0.03 && rect.y < height*0.7 && rect.y > height*0.02
-      )
+    if(wh_ratio < 1 && wh_ratio > 0.1 && rect.width > 0.1*width && rect.height > 0.2*height)
     {
-     rect.x -= rect.width * 0.05;
-    rect.y -= rect.height * 0.05;
-    rect.width += rect.width * 0.1;
-    rect.height += rect.height * 0.1; 
-    
-    double standart_wh_ratio = 0.5;
-    wh_ratio = (double)rect.width/rect.height;
-    if(wh_ratio < standart_wh_ratio)
+      candidates.push_back(rect);
+    }
+  }
+  
+  vector<Mat> resultText;
+  
+  if(candidates.size() < 7)
+  {
+    cout << "cannot get enough text!" << endl;
+    cout << candidates.size() << endl;
+  }
+  else
+  {
+    sort(candidates.begin(), candidates.end(), cmp);
+    for(int i = 0; i < 7; i++)
     {
-      rect.x -= rect.width * ((standart_wh_ratio-wh_ratio)/2);
-      rect.width += rect.width * ((standart_wh_ratio-wh_ratio)); 
+      double wh_ratio = (double)candidates[i].width/candidates[i].height;
+      double standard_wh_ratio = 0.5;
+      if(wh_ratio < standard_wh_ratio) 	//字符偏瘦，尤其是字符"1"
+      {
+	candidates[i].x -= candidates[i].width * ((standard_wh_ratio-wh_ratio)/2);
+	candidates[i].width += candidates[i].width * (standard_wh_ratio-wh_ratio);
+      }
+      
+      Mat tmp;
+      resize(rgbMask(candidates[i]), tmp, Size(13,26), 0, 0, CV_INTER_LINEAR);
+      resultText.push_back(tmp);
+      imshow("text", resultText[i]); waitKey();
     }
-    else
-    {
-      rect.y -= rect.height *((wh_ratio - standart_wh_ratio)/2);
-      rect.height += rect.height * ((wh_ratio - standart_wh_ratio));
-    }
-    
-    Mat resultText;
-    resize(rgbMask(rect), resultText, Size(13,26), 0, 0, CV_INTER_LINEAR);
-    
-      imshow("text", resultText); waitKey();
-    }
-    
-  }  
+  }
+  return resultText;
   
 }
 
 
 int main(void)
 {
-  Mat srcImage = imread("/home/tzc/detect_picture/007.jpeg");
+  Mat srcImage = imread("../detect_picture/011.jpg");
   //resize(srcImage, srcImage, Size(480, 640), 0, 0, CV_INTER_LINEAR);
   imshow("srcImage", srcImage); waitKey();
   Mat hsvMask = getHSVMask(srcImage);		//筛选符合HSV条件的区域，并进行一次开运算消除杂碎点
@@ -383,13 +420,13 @@ int main(void)
   Mat cannyImage;
   int edgeThresh = 50;
   Canny(grayImage, cannyImage, edgeThresh, edgeThresh*3, 3);
-  imshow("cannyImage", cannyImage);waitKey();
+  //imshow("cannyImage", cannyImage);waitKey();
   Mat suspendEdge = getSuspendEdge(hsvMask, cannyImage);
   Mat finalMask = getFinalMask(suspendEdge);
   Mat resultArea = getArea(srcImage, finalMask);
   Mat correctImage = getCorrect(resultArea);
   Mat rgbMask4Text = getRGBMask4Text(correctImage);
-  // Derive_Frame(rgbMask4Text); 
+  Cut_Edge(correctImage, rgbMask4Text); 
   Split_Text(rgbMask4Text);
   
   

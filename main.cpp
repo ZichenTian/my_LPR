@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 using namespace cv;
+using namespace ml;
 using namespace std;
 
 Mat getHSVMask(Mat& srcImage)
@@ -412,7 +413,7 @@ vector<Mat> Split_Text(Mat & rgbMask, Mat& rgbMask4Final)
   rect.y -= rect.height * 0.05;
   rect.width += rect.width * 0.1;
   rect.height += rect.height * 0.1;
-  /*
+  
   if(rect.x < 0)		//防止超出
     rect.x = 0;
   if(rect.y < 0)
@@ -421,7 +422,7 @@ vector<Mat> Split_Text(Mat & rgbMask, Mat& rgbMask4Final)
   if(rect.width+rect.x >= width)	
     rect.width = width - rect.x-1;
   if(rect.height+rect.y >= height)
-    rect.height = height - rect.y-1;*/
+    rect.height = height - rect.y-1;
   
       candidates.push_back(rect);
     }
@@ -466,19 +467,54 @@ vector<Mat> Split_Text(Mat & rgbMask, Mat& rgbMask4Final)
       resize(rgbMask4Final(candidates[i]), tmp, Size(16,32), 0, 0, CV_INTER_AREA);
       equalizeHist(tmp, tmp);
       resultText.push_back(tmp);
-      imshow("text", resultText[i]); waitKey();
+      //imshow("text", resultText[i]); waitKey();
     }
   }
   return resultText;
   
 }
 
-
+void calcGradientFeat(const Mat& imgSrc, vector<float>& feat) 
+{ 
+     float sumMatValue(const Mat& image); // 计算图像中像素灰度值总和 
+     
+     Mat image; 
+     if(imgSrc.type() != CV_8UC1)
+      cvtColor(imgSrc,image,CV_BGR2GRAY); 
+     else
+      image = imgSrc.clone();
+     resize(image,image,Size(8,16)); 
+     Mat tmp = image.clone();
+     
+     for(int i = 0; i < tmp.rows; i++)
+     {
+       for(int j = 0; j < tmp.cols; j++)
+       {
+	 feat.push_back((float)tmp.at<uchar>(i,j));
+       }
+     }
+ }
+ 
+ char translateNum(int num)
+ {
+   char result;
+   if(num<=9)
+     result = num+'0';
+   else if(num <= 17)
+     result = num+'A'-10;
+   else if(num <= 22)
+     result = num+'A'+1-10;
+   else
+     result = num+'A'+2-10;
+   return result;
+ }
 
 
 int main(void)
 {
-  Mat srcImage = imread("../detect_picture/016.jpg");
+  
+  
+  Mat srcImage = imread("../detect_picture/030.jpg");
   //resize(srcImage, srcImage, Size(480, 640), 0, 0, CV_INTER_LINEAR);
   imshow("srcImage", srcImage); waitKey();
   Mat hsvMask = getHSVMask(srcImage);		//筛选符合HSV条件的区域，并进行一次开运算消除杂碎点
@@ -496,7 +532,37 @@ int main(void)
   Mat rgbMask4Final;
   Mat rgbMask4Text = getRGBMask4Text(correctImage, rgbMask4Final);
   Cut_Edge(correctImage, rgbMask4Text); 
-  Split_Text(rgbMask4Text, rgbMask4Final);
+  vector<Mat> splitText =  Split_Text(rgbMask4Text, rgbMask4Final);
+  
+  Ptr<ANN_MLP> ann = ANN_MLP::load<ANN_MLP>("mlp.xml");
+  
+  for(int i = 1; i < 7; i++)		//汉字不识别
+  {
+    vector<float> feat;
+    imshow("origin", splitText[i]);waitKey();
+    calcGradientFeat(splitText[i], feat);
+    float test_input[1][128];
+    for(int j = 0; j < 128; j++)
+      test_input[0][j] = feat[j];
+    Mat test_input_mat(1,128,CV_32FC1,test_input);
+    Mat test_output_mat;
+    ann->predict(test_input_mat, test_output_mat);
+    cout << test_output_mat << endl;
+    float max = -10;
+    int max_x = 0;
+    float* p1tr = (float*)test_output_mat.data;
+    for(int i = 0; i < 34; i++)
+    {
+      if(*(p1tr+i) > max)
+      {
+	max = *(p1tr+i);
+	max_x = i;
+      }
+    }
+    cout << max_x << endl;
+    cout << translateNum(max_x) << endl;
+    
+  }
   
   
   
